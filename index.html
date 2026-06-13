@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>在宅用貼り付け用紙</title>
+
+  <!-- PWA / ホーム画面アイコン対応 -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+  <meta name="theme-color" content="#0d6efd">
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+  <style>
+    /* --- 画面表示用スタイル --- */
+    body { background-color: #f0f2f5; font-size: 16px; }
+    .no-print-card { max-width: 950px; margin: 10px auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    .search-res { position: absolute; z-index: 1000; width: 95%; background: #fffde7; border: 3px solid #0d6efd; border-radius: 5px; max-height: 150px; overflow-y: auto; }
+    .search-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; }
+    .search-item:hover, .search-item.selected { background: #0d6efd; color: white; }
+
+    .usage-col { display: flex; flex-direction: column; align-items: flex-start; padding-left: 20px; }
+    .form-check-label { font-size: 1.15rem; font-weight: 500; cursor: pointer; }
+    .form-check-input { width: 1.3em; height: 1.3em; margin-right: 8px; }
+
+    /* 日数ホバーメニュー */
+    .days-container { position: relative; width: 100%; }
+    .days-hover-menu { opacity: 0; visibility: hidden; transform: translateY(5px); transition: all 0.2s ease-out; position: absolute; top: 100%; left: 0; z-index: 2000; background: #ffffff; border: 2px solid #198754; border-radius: 8px; padding: 6px; width: 280px; }
+    .days-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+    .day-btn { height: 35px; font-weight: bold; padding: 0; display: flex; align-items: center; justify-content: center; }
+    .days-container:hover .days-hover-menu { opacity: 1; visibility: visible; transform: translateY(0); }
+
+    /* レイアウト設定カード */
+    .layout-card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px 14px; margin-bottom: 1rem; }
+    .layout-card .layout-title { font-size: 0.8rem; font-weight: 700; color: #6c757d; margin-bottom: 8px; }
+    .layout-divider { width: 1px; background: #dee2e6; align-self: stretch; margin: 0 4px; }
+
+    /* --- 印刷レイアウト設定（画面確認用） --- */
+    .a4-landscape-page {
+      width: 297mm;
+      height: 210mm;
+      padding: 10mm 8mm;
+      margin: 20px auto;
+      border: 1px dashed #ccc;
+      background: white;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      font-family: "Hiragino Maru Gothic ProN", "Meiryo", sans-serif;
+    }
+
+    .label-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      grid-template-rows: repeat(4, 1fr);
+      flex-grow: 1;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+    }
+
+    .label-cell {
+      border-right: 1.5px solid #000;
+      border-bottom: 1.5px solid #000;
+      padding: 4.5mm 2mm;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+    }
+
+    .label-cell:nth-child(7n)   { border-right: none; }
+    .label-cell:nth-child(n+22) { border-bottom: none; }
+    .cell-name  { font-size: 11pt; color: #333; font-weight: bold; text-align: center;
+                  white-space: normal; word-break: break-all; overflow: hidden; margin-bottom: 1mm; }
+    .cell-date  { font-size: 16pt; font-weight: bold; color: #000;
+                  text-align: center; margin-bottom: 1mm; }
+    .cell-usage { font-size: 16pt; font-weight: 900; text-align: center; color: #000; }
+
+    /* 食前・食直前：黒背景白抜き */
+    .usage-inverse {
+      background-color: #000 !important;
+      color: #fff !important;
+      padding: 1px 4px;
+      border-radius: 2px;
+    }
+
+    /* ===== スマホ対応（768px以下） ===== */
+    @media (max-width: 768px) {
+
+      body { font-size: 15px; }
+
+      .no-print-card { margin: 6px; padding: 14px; border-radius: 8px; }
+
+      .form-control, .btn { min-height: 44px; }
+
+      .form-check-input { width: 1.6em !important; height: 1.6em !important; }
+      .form-check-label { font-size: 1.25rem !important; }
+
+      #free-inputs .col-3 { width: 50% !important; }
+
+      .layout-card .d-flex { flex-direction: column !important; align-items: flex-start !important; gap: 10px !important; }
+      .layout-divider { display: none !important; }
+
+      #print-area { overflow-x: auto; }
+      .a4-landscape-page { transform-origin: top left; transform: scale(0.35); width: 297mm; margin-bottom: -130mm; }
+    }
+
+    @media print {
+      body { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container-fluid">
+  <div class="no-print-card shadow-sm">
+    <h4 class="mb-3 text-primary fw-bold"><i class="bi bi-calendar4-week"></i> 在宅用貼り付け用紙</h4>
+
+    <div class="row g-2 mb-3 position-relative align-items-end">
+      <div class="col-4 col-sm-4">
+        <label class="fw-bold small text-muted">かな(検索)</label>
+        <input type="text" id="pKana" class="form-control" oninput="handleSearch(this)" autocomplete="off" placeholder="ひらがな・カタカナ">
+        <div id="results" class="search-res shadow" style="display:none;"></div>
+      </div>
+      <div class="col-8 col-sm-4">
+        <label class="fw-bold small text-muted"><i class="bi bi-person-fill"></i> 氏名</label>
+        <input type="text" id="pName" class="form-control" oninput="refreshPages()">
+      </div>
+      <div class="col-10 col-sm-3">
+        <label class="fw-bold small text-muted"><i class="bi bi-calendar-event"></i> 生年月日</label>
+        <input type="text" id="pBirth" class="form-control" placeholder="例: S550101">
+      </div>
+      <div class="col-2 col-sm-1 text-end">
+        <button type="button" id="btn-delete-patient" class="btn btn-outline-danger p-1 w-100" onclick="openDeleteModal()" disabled>
+          <i class="bi bi-trash3-fill"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="row g-2 mb-3 align-items-end">
+      <div class="col-12 col-sm-4">
+        <label class="fw-bold small text-muted"><i class="bi bi-calendar-play"></i> 服用開始日</label>
+        <input type="date" id="pStartDate" class="form-control" onchange="refreshPages()">
+      </div>
+      <div class="col-6 col-sm-4">
+        <label class="fw-bold small text-muted"><i class="bi bi-clock-history"></i> 日数</label>
+        <div class="days-container">
+          <input type="number" id="pDays" class="form-control text-center fw-bold" min="1" value="14" oninput="refreshPages()">
+          <div class="days-hover-menu shadow-lg">
+            <div class="days-grid">
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(14)">14</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(21)">21</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(28)">28</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(35)">35</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(42)">42</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(49)">49</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(56)">56</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(63)">63</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(70)">70</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(77)">77</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(84)">84</button>
+              <button type="button" class="btn btn-success day-btn text-white" onclick="setDays(91)">91</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-6 col-sm-4">
+        <button type="button" class="btn btn-outline-secondary w-100 fw-bold" data-bs-toggle="modal" data-bs-target="#resetConfirmModal">
+          <i class="bi bi-arrow-counterclockwise"></i> リセット
+        </button>
+      </div>
+    </div>
+
+    <div class="layout-card">
+      <div class="layout-title"><i class="bi bi-gear-fill me-1"></i>レイアウト設定</div>
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" id="fixedDate" onchange="refreshPages()" style="width:2.4em;height:1.25em;cursor:pointer;">
+          <label class="form-check-label fw-bold" for="fixedDate" style="font-size:0.95rem;cursor:pointer;">
+            <i class="bi bi-calendar-check"></i> 日付を印刷日固定
+          </label>
+        </div>
+        <div class="layout-divider d-none d-sm-block"></div>
+        <div class="d-flex align-items-center gap-2">
+          <label class="fw-bold small text-muted mb-0 text-nowrap" for="topMarginInput">
+            <i class="bi bi-arrows-collapse-vertical"></i> 上マージン
+          </label>
+          <div class="input-group input-group-sm" style="width:115px;">
+            <input type="number" id="topMarginInput" class="form-control text-center fw-bold" value="4.5" step="0.5" min="0" max="30" oninput="refreshPages()">
+            <span class="input-group-text">mm</span>
+          </div>
+        </div>
+        <div class="layout-divider d-none d-sm-block"></div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="fw-bold small text-muted text-nowrap">
+            <i class="bi bi-layout-text-window-reverse"></i> テキスト位置
+          </span>
+          <div class="btn-group btn-group-sm" role="group">
+            <input type="radio" class="btn-check" name="cellPos" id="posTop" value="top" checked onchange="refreshPages()">
+            <label class="btn btn-outline-secondary fw-bold px-3" for="posTop">上段</label>
+            <input type="radio" class="btn-check" name="cellPos" id="posMid" value="middle" onchange="refreshPages()">
+            <label class="btn btn-outline-secondary fw-bold px-3" for="posMid">中段</label>
+            <input type="radio" class="btn-check" name="cellPos" id="posBot" value="bottom" onchange="refreshPages()">
+            <label class="btn btn-outline-secondary fw-bold px-3" for="posBot">下段</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button onclick="printAction()" class="btn btn-primary btn-lg w-100 fw-bold py-3 shadow mb-3">
+      <i class="bi bi-printer-fill me-2"></i> 印刷 ＆ データベース保存
+    </button>
+
+    <div class="card bg-light border-0 mb-3">
+      <div class="card-body py-2">
+        <div class="row text-start mb-1">
+          <div class="col-12 col-sm-3 usage-col mb-2 mb-sm-0">
+            <div class="fw-bold small text-danger mb-1"><i class="bi bi-sun-fill"></i> あさ</div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="あさ食後" id="u1" onchange="refreshPages()"><label class="form-check-label" for="u1">食後</label></div>
+            <div class="form-check d-none d-sm-flex"><input class="form-check-input" type="checkbox" name="usage" value="あさ食前" id="u2" onchange="syncUsage('あさ食前', this.checked)"><label class="form-check-label" for="u2"><span class="usage-inverse">食前</span></label></div>
+          </div>
+          <div class="col-12 col-sm-3 usage-col border-sm-start mb-2 mb-sm-0">
+            <div class="fw-bold small text-primary mb-1"><i class="bi bi-brightness-high-fill"></i> ひる</div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ひる食後" id="u3" onchange="refreshPages()"><label class="form-check-label" for="u3">食後</label></div>
+            <div class="form-check d-none d-sm-flex"><input class="form-check-input" type="checkbox" name="usage" value="ひる食前" id="u4" onchange="syncUsage('ひる食前', this.checked)"><label class="form-check-label" for="u4"><span class="usage-inverse">食前</span></label></div>
+          </div>
+          <div class="col-12 col-sm-3 usage-col border-sm-start mb-2 mb-sm-0">
+            <div class="fw-bold small text-dark mb-1"><i class="bi bi-moon-stars-fill"></i> ゆう</div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ゆう食後" id="u5" onchange="refreshPages()"><label class="form-check-label" for="u5">食後</label></div>
+            <div class="form-check d-none d-sm-flex"><input class="form-check-input" type="checkbox" name="usage" value="ゆう食前" id="u6" onchange="syncUsage('ゆう食前', this.checked)"><label class="form-check-label" for="u6"><span class="usage-inverse">食前</span></label></div>
+          </div>
+          <div class="col-12 col-sm-3 usage-col border-sm-start">
+            <div class="fw-bold small text-muted mb-1"><i class="bi bi-three-dots"></i> その他</div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ねる前" id="u7" onchange="refreshPages()"><label class="form-check-label" for="u7">ねる前</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="起床時" id="u8" onchange="refreshPages()"><label class="form-check-label" for="u8">起床時</label></div>
+          </div>
+        </div>
+
+        <div class="accordion accordion-flush" id="usageAcc">
+          <div class="accordion-item bg-transparent">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed py-2 small text-muted bg-transparent px-0" type="button" data-bs-toggle="collapse" data-bs-target="#usageExtra">
+                ＋ 食直後・食直前・食間・自由入力
+              </button>
+            </h2>
+            <div id="usageExtra" class="accordion-collapse collapse">
+              <div class="accordion-body p-0 pt-2">
+                <div class="row text-start mb-2 border-bottom pb-2">
+                  <div class="col-12 col-sm-3 usage-col mb-2 mb-sm-0">
+                    <div class="fw-bold small text-danger mb-1 d-block d-sm-none"><i class="bi bi-sun-fill"></i> あさ（詳細）</div>
+                    <div class="form-check d-sm-none"><input class="form-check-input" type="checkbox" name="usage" value="あさ食前" id="u2m" onchange="syncUsage('あさ食前', this.checked)"><label class="form-check-label" for="u2m"><span class="usage-inverse">食前</span></label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="あさ食直後" id="u9" onchange="refreshPages()"><label class="form-check-label" for="u9">食直後</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="あさ食直前" id="u10" onchange="refreshPages()"><label class="form-check-label" for="u10"><span class="usage-inverse">食直前</span></label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="あさ食間" id="u15" onchange="refreshPages()"><label class="form-check-label" for="u15">食間</label></div>
+                  </div>
+                  <div class="col-12 col-sm-3 usage-col border-sm-start mb-2 mb-sm-0">
+                    <div class="fw-bold small text-primary mb-1 d-block d-sm-none"><i class="bi bi-brightness-high-fill"></i> ひる（詳細）</div>
+                    <div class="form-check d-sm-none"><input class="form-check-input" type="checkbox" name="usage" value="ひる食前" id="u4m" onchange="syncUsage('ひる食前', this.checked)"><label class="form-check-label" for="u4m"><span class="usage-inverse">食前</span></label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ひる食直後" id="u11" onchange="refreshPages()"><label class="form-check-label" for="u11">食直後</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ひる食直前" id="u12" onchange="refreshPages()"><label class="form-check-label" for="u12"><span class="usage-inverse">食直前</span></label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ひる食間" id="u16" onchange="refreshPages()"><label class="form-check-label" for="u16">食間</label></div>
+                  </div>
+                  <div class="col-12 col-sm-3 usage-col border-sm-start mb-2 mb-sm-0">
+                    <div class="fw-bold small text-dark mb-1 d-block d-sm-none"><i class="bi bi-moon-stars-fill"></i> ゆう（詳細）</div>
+                    <div class="form-check d-sm-none"><input class="form-check-input" type="checkbox" name="usage" value="ゆう食前" id="u6m" onchange="syncUsage('ゆう食前', this.checked)"><label class="form-check-label" for="u6m"><span class="usage-inverse">食前</span></label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ゆう食直後" id="u13" onchange="refreshPages()"><label class="form-check-label" for="u13">食直後</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ゆう食直前" id="u14" onchange="refreshPages()"><label class="form-check-label" for="u14"><span class="usage-inverse">食直前</span></label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="usage" value="ゆう食間" id="u17" onchange="refreshPages()"><label class="form-check-label" for="u17">食間</label></div>
+                  </div>
+                  <div class="col-12 col-sm-3 usage-col border-sm-start d-none d-sm-block"></div>
+                </div>
+                <label class="small text-muted fw-bold mb-1">自由入力</label>
+                <div class="row g-2" id="free-inputs"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="print-area"></div>
+
+<div class="modal fade" id="resetConfirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5>入力のリセット</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">入力をすべて消去しますか？</div>
+      <div class="modal-footer"><button type="button" class="btn border" data-bs-dismiss="modal">戻る</button><button type="button" class="btn btn-danger" onclick="executeReset()" data-bs-dismiss="modal">消去</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white"><h5>マスターから削除</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">現在選択されている患者データを完全に削除しますか？</div>
+      <div class="modal-footer"><button type="button" class="btn border" data-bs-dismiss="modal">戻る</button><button type="button" class="btn btn-danger" onclick="executeDelete()" data-bs-dismiss="modal">完全に削除</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+  // ===== Supabase接続設定 =====
+  const SUPABASE_URL = 'https://escjtxbjdjeorxelfsbn.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzY2p0eGJqZGplb3J4ZWxmc2JuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzMjMwNTgsImV4cCI6MjA5Njg5OTA1OH0.YK95c4wki_UcmzGIfQLQiZNRFSpz6PqF7L8W1313liY';
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let ALL_PATIENTS = [];
+  let selectedPatientId = null;
+
+  const KANA_MAP = {
+    'あ':'ｱ','い':'ｲ','う':'ｳ','え':'ｴ','お':'ｵ','か':'ｶ','き':'ｷ','く':'ｸ','け':'ｹ','こ':'ｺ','さ':'ｻ','し':'ｼ','す':'ｽ','せ':'ｾ','そ':'ｿ','た':'ﾀ','ち':'ﾁ','つ':'ﾂ','て':'ﾃ','と':'ﾄ','な':'ﾅ','に':'ﾆ','ぬ':'ﾇ','ね':'ﾈ','の':'ﾉ','は':'ﾊ','ひ':'ﾋ','ふ':'ﾌ','へ':'ﾍ','ほ':'ﾎ','ま':'ﾏ','み':'ﾐ','む':'ﾑ','め':'ﾒ','も':'ﾓ','や':'ﾔ','ゆ':'ﾕ','よ':'ﾖ','ら':'ﾗ','り':'ﾘ','る':'ﾙ','れ':'ﾚ','ろ':'ﾛ','わ':'ﾜ','を':'ｦ','ん':'ﾝ','ぁ':'ｧ','ぃ':'ｨ','ぅ':'ｳ','ぇ':'ｪ','ぉ':'ｫ','っ':'ｯ','ゃ':'ｬ','ゅ':'ｭ','ょ':'ｮ','が':'ｶﾞ','ぎ':'ｷﾞ','ぐ':'ｸﾞ','げ':'ｹﾞ','ご':'ｺﾞ','ざ':'ｻﾞ','じ':'ｼﾞ','ず':'ｽﾞ','ぜ':'ｾﾞ','ぞ':'ｿﾞ','だ':'ﾀﾞ','ぢ':'ﾁﾞ','づ':'ﾂﾞ','で':'ﾃﾞ','ど':'ﾄﾞ','ば':'ﾊﾞ','び':'ﾋﾞ','ぶ':'ﾌﾞ','べ':'ﾍﾞ','ぼ':'ﾎﾞ','ぱ':'ﾊﾟ','ぴ':'ﾋﾟ','ぷ':'ﾌﾟ','ぺ':'ﾍﾟ','ぽ':'ﾎﾟ','ア':'ｱ','イ':'ｲ','ウ':'ｳ','エ':'ｴ','オ':'ｵ','カ':'ｶ','キ':'ｷ','ク':'ｸ','ケ':'ｹ','コ':'ｺ','サ':'ｻ','シ':'ｼ','ス':'ｽ','セ':'ｾ','ソ':'ｿ','タ':'ﾀ','チ':'ﾁ','ツ':'ﾂ','テ':'ﾃ','ト':'ﾄ','ナ':'ﾅ','ニ':'ﾆ','ヌ':'ﾇ','ネ':'ﾈ','ノ':'ﾉ','ハ':'ﾊ','ヒ':'ﾋ','フ':'ﾌ','ヘ':'ﾍ','ホ':'ﾎ','マ':'ﾏ','ミ':'ﾐ','ム':'ﾑ','メ':'ﾒ','モ':'ﾓ','ヤ':'ﾔ','ユ':'ﾕ','ヨ':'ﾖ','ラ':'ﾗ','リ':'ﾘ','ル':'ﾙ','レ':'ﾚ','ロ':'ﾛ','ワ':'ﾜ','ヲ':'ｦ','ン':'ﾝ','ァ':'ｧ','ィ':'ｨ','ゥ':'ｳ','ェ':'ｪ','ォ':'ｫ','ッ':'ｯ','ャ':'ｬ','ュ':'ｭ','ョ':'ｮ','ヴ':'ｳﾞ','ガ':'ｶﾞ','ギ':'ｷﾞ','グ':'ｸﾞ','ゲ':'ｹﾞ','ゴ':'ｺﾞ','ザ':'ｻﾞ','ジ':'ｼﾞ','ズ':'ｽﾞ','ゼ':'ｾﾞ','ゾ':'ｿﾞ','ダ':'ﾀﾞ','ヂ':'ﾁﾞ','ヅ':'ﾂﾞ','デ':'ﾃﾞ','ド':'ﾄﾞ','バ':'ﾊﾞ','ビ':'ﾋﾞ','ブ':'ﾌﾞ','ベ':'ﾍﾞ','ボ':'ﾎﾞ','パ':'ﾊﾟ','ピ':'ﾋﾟ','プ':'ﾌﾟ','ペ':'ﾍﾟ','ポ':'ﾎﾟ'
+  };
+  function toHalfKana(str) {
+    if (!str) return "";
+    let s = str.replace(/[\s ]/g, '');
+    return s.split('').map(char => KANA_MAP[char] || char).join('');
+  }
+  function toHalfWidth(str) {
+    if (!str) return "";
+    return str.replace(/[！-～]/g, function(s) {
+      return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+    }).replace(/ /g, ' ');
+  }
+  function generateRandomId() {
+    const char = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let res = '';
+    for (let i = 0; i < 16; i++) {
+      res += char.charAt(Math.floor(Math.random() * char.length));
+    }
+    return res;
+  }
+
+  // ===== 患者データ読み込み（Supabaseから）=====
+  async function loadPatients() {
+    const { data, error } = await supabaseClient.from('patients').select('*');
+    if (error) {
+      console.error(error);
+      alert('患者データの読み込みに失敗しました: ' + error.message);
+      return;
+    }
+    ALL_PATIENTS = (data || []).map(row => {
+      let nextDateStr = "";
+      if (row.last_start_date && row.last_days) {
+        try {
+          let lastDate = new Date(row.last_start_date);
+          if (!isNaN(lastDate.getTime())) {
+            lastDate.setDate(lastDate.getDate() + parseInt(row.last_days || 0));
+            const y = lastDate.getFullYear();
+            const m = String(lastDate.getMonth() + 1).padStart(2, '0');
+            const d = String(lastDate.getDate()).padStart(2, '0');
+            nextDateStr = `${y}-${m}-${d}`;
+          }
+        } catch(e) {}
+      }
+      return {
+        id: row.id,
+        birthday: row.birthday,
+        kana: row.kana,
+        name: row.name,
+        lastStartDate: row.last_start_date,
+        lastDays: row.last_days,
+        lastUsage: row.last_usage,
+        nextStartDate: nextDateStr,
+        fixedDate: row.fixed_date || false,
+        cellPos: row.cell_pos || 'top'
+      };
+    });
+  }
+
+  // ===== 印刷時：保存処理（Supabaseへ）=====
+  async function savePrintLog(p) {
+    const cleanName = p.name ? toHalfWidth(p.name).trim() : "";
+    const cleanBirth = p.birthday ? toHalfWidth(p.birthday).replace(/\s+/g, "") : "";
+    const cleanKana = toHalfKana(p.kana);
+
+    // 既存データの特定（id優先、なければかな+生年月日で一致確認）
+    let existing = null;
+    if (p.id) {
+      existing = ALL_PATIENTS.find(r => String(r.id) === String(p.id));
+    }
+    if (!existing) {
+      existing = ALL_PATIENTS.find(r => String(r.kana) === cleanKana && String(r.birthday) === cleanBirth);
+    }
+
+    const patientId = existing ? existing.id : (p.id || generateRandomId());
+
+    const row = {
+      id: patientId,
+      birthday: cleanBirth,
+      kana: cleanKana,
+      name: cleanName,
+      last_start_date: p.startDate || null,
+      last_days: p.days,
+      last_usage: p.usage,
+      fixed_date: p.fixedDate,
+      cell_pos: p.cellPos,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error } = await supabaseClient.from('patients').upsert(row);
+    if (error) {
+      console.error(error);
+      alert('保存に失敗しました: ' + error.message);
+      return;
+    }
+
+    // 上マージンがデフォルト以外ならログ記録
+    const margin = Number(p.topMargin);
+    if (!isNaN(margin) && margin !== DEFAULT_TOP_MARGIN) {
+      await logMarginChange(cleanName, margin);
+    }
+  }
+
+  const DEFAULT_TOP_MARGIN = 4.5;
+
+  async function logMarginChange(name, marginValue) {
+    const { error } = await supabaseClient.from('margin_logs').insert({
+      name: name,
+      top_margin: marginValue
+    });
+    if (error) console.error(error);
+  }
+
+  async function deletePatientFromSheet(targetId) {
+    const { error } = await supabaseClient.from('patients').delete().eq('id', targetId);
+    if (error) {
+      console.error(error);
+      alert('削除に失敗しました: ' + error.message);
+      return false;
+    }
+    return true;
+  }
+
+  window.onload = async function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('pStartDate').value = today;
+
+    await loadPatients();
+
+    document.getElementById('pKana').addEventListener('keydown', function(e) {
+      const resDiv = document.getElementById('results');
+      if (resDiv.style.display === 'none') {
+        if (e.key === 'Enter') { e.preventDefault(); document.getElementById('pName').focus(); }
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault(); selectedIndex = (selectedIndex + 1) % currentMatches.length; renderResults();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault(); selectedIndex = (selectedIndex - 1 + currentMatches.length) % currentMatches.length; renderResults();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (selectedIndex > -1) selectPatient(currentMatches[selectedIndex]);
+        else if (currentMatches.length > 0) selectPatient(currentMatches[0]);
+      } else if (e.key === 'Escape') {
+        resDiv.style.display = "none"; selectedIndex = -1;
+      }
+    });
+
+    const fContainer = document.getElementById('free-inputs');
+    for (let i = 0; i < 8; i++) {
+      fContainer.innerHTML += `
+        <div class="col-3">
+          <div class="input-group input-group-sm">
+            <div class="input-group-text">
+              <input type="checkbox" class="f-check" id="fc-${i}" onchange="refreshPages()">
+            </div>
+            <input type="text" class="form-control f-text" id="ft-${i}" oninput="handleFree(${i})" placeholder="用法入力">
+          </div>
+        </div>`;
+    }
+
+    document.getElementById('pDays').addEventListener('wheel', function(e) {
+      e.preventDefault();
+      const current = parseInt(this.value) || 0;
+      this.value = e.deltaY < 0 ? current + 7 : Math.max(1, current - 7);
+      refreshPages();
+    }, { passive: false });
+
+    document.getElementById('pStartDate').addEventListener('wheel', function(e) {
+      e.preventDefault();
+      const current = new Date(this.value);
+      if (isNaN(current.getTime())) return;
+      current.setDate(current.getDate() + (e.deltaY < 0 ? 1 : -1));
+      this.value = current.toISOString().split('T')[0];
+      refreshPages();
+    }, { passive: false });
+
+    document.getElementById('topMarginInput').addEventListener('wheel', function(e) {
+      e.preventDefault();
+      const current = parseFloat(this.value) || 0;
+      const next = e.deltaY < 0 ? current + 0.5 : Math.max(0, current - 0.5);
+      this.value = Math.round(next * 10) / 10;
+      refreshPages();
+    }, { passive: false });
+
+    document.getElementById('pDays').addEventListener('focus', function() { this.select(); });
+    document.getElementById('topMarginInput').addEventListener('focus', function() { this.select(); });
+
+    refreshPages();
+  };
+
+  function setDays(d) {
+    document.getElementById('pDays').value = d;
+    refreshPages();
+  }
+
+  function syncUsage(value, checked) {
+    document.querySelectorAll(`input[name="usage"][value="${value}"]`).forEach(cb => cb.checked = checked);
+    refreshPages();
+  }
+
+  function getSelectedUsages() {
+    let usages = new Set();
+    document.querySelectorAll('input[name="usage"]:checked').forEach(cb => usages.add(cb.value));
+    for (let i = 0; i < 8; i++) {
+      const fc = document.getElementById('fc-' + i);
+      const ft = document.getElementById('ft-' + i);
+      if (fc && fc.checked && ft && ft.value.trim()) usages.add(ft.value.trim());
+    }
+    return Array.from(usages);
+  }
+
+  function handleFree(i) {
+    const fc = document.getElementById('fc-' + i);
+    const ft = document.getElementById('ft-' + i);
+    if (fc && ft) fc.checked = ft.value.length > 0;
+    refreshPages();
+  }
+
+  function refreshPages() {
+    const name        = document.getElementById('pName').value || "＿＿ ＿＿";
+    const startDateVal = document.getElementById('pStartDate').value;
+    const days        = parseInt(document.getElementById('pDays').value) || 0;
+    const usages      = getSelectedUsages();
+    const printArea   = document.getElementById('print-area');
+    printArea.innerHTML = "";
+
+    const fixedDate    = document.getElementById('fixedDate')?.checked ?? false;
+    const topMarginMm  = parseFloat(document.getElementById('topMarginInput')?.value ?? 4.5) || 0;
+    const cellPos      = document.querySelector('input[name="cellPos"]:checked')?.value || 'top';
+    const justifyMap = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
+    const justifyVal = justifyMap[cellPos] || 'flex-start';
+
+    if (!startDateVal || days <= 0 || usages.length === 0) return;
+
+    const now       = new Date();
+    const todayStr  = `${now.getMonth() + 1}/${now.getDate()}`;
+
+    let totalCells = [];
+    usages.forEach(usage => {
+      let currentBaseDate = new Date(startDateVal);
+      for (let i = 0; i < days; i++) {
+        const m = currentBaseDate.getMonth() + 1;
+        const d = currentBaseDate.getDate();
+        const dateStr = fixedDate ? todayStr : `${m}/${d}`;
+        totalCells.push({ dateText: dateStr, nameText: name + " 様", usageText: usage });
+        currentBaseDate.setDate(currentBaseDate.getDate() + 1);
+      }
+    });
+
+    const cellsPerPage = 28;
+    const pageCount    = Math.ceil(totalCells.length / cellsPerPage);
+
+    for (let p = 0; p < pageCount; p++) {
+      const pageDiv = document.createElement('div');
+      pageDiv.className = 'a4-landscape-page';
+      const gridDiv = document.createElement('div');
+      gridDiv.className = 'label-grid';
+      const pageCells = totalCells.slice(p * cellsPerPage, (p + 1) * cellsPerPage);
+
+      pageCells.forEach(c => {
+        const cell = document.createElement('div');
+        cell.className = 'label-cell';
+        cell.style.paddingTop = topMarginMm + 'mm';
+        cell.style.justifyContent = justifyVal;
+
+        const isInverse = /食前|食直前/.test(c.usageText);
+        const usageHtml = isInverse
+          ? `<span style="background:#000;color:#fff;padding:0 3px;border-radius:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">${c.usageText}</span>`
+          : c.usageText;
+
+        cell.innerHTML = `
+          <div class="cell-name">${c.nameText}</div>
+          <div class="cell-date">${c.dateText}</div>
+          <div class="cell-usage">${usageHtml}</div>
+        `;
+        gridDiv.appendChild(cell);
+      });
+      pageDiv.appendChild(gridDiv);
+      printArea.appendChild(pageDiv);
+    }
+  }
+
+  let selectedIndex  = -1;
+  let currentMatches = [];
+  function handleSearch(input) {
+    const norm = (s) => s.replace(/[\s ]/g, '');
+    const conv = (s) => {
+      let str = s.replace(/[！-～]/g, m => String.fromCharCode(m.charCodeAt(0) - 0xFEE0));
+      str = str.replace(/[ぁ-ん]/g, m => String.fromCharCode(m.charCodeAt(0) + 0x60));
+      return toHalfKana(str);
+    };
+    const sv = norm(conv(input.value));
+    const resDiv = document.getElementById('results');
+    if (sv.length < 1) { resDiv.style.display = "none"; selectedIndex = -1; return; }
+
+    currentMatches = ALL_PATIENTS.filter(p => {
+      const targetKana  = norm(String(p.kana   || ""));
+      const targetName  = norm(String(p.name   || ""));
+      const targetBirth = norm(String(p.birthday || ""));
+      return targetKana.includes(sv) || targetName.includes(sv) || targetBirth.includes(sv);
+    }).slice(0, 10);
+
+    if (currentMatches.length > 0) { resDiv.style.display = "block"; renderResults(); }
+    else { resDiv.style.display = "none"; selectedIndex = -1; }
+  }
+
+  function renderResults() {
+    const resDiv = document.getElementById('results');
+    resDiv.innerHTML = currentMatches.map((p, i) => `
+      <div class="search-item ${i === selectedIndex ? 'selected' : ''}" id="suggest-item-${i}"
+           onclick='selectPatient(${JSON.stringify(p)})'>
+        <strong>${p.name}</strong> <small>${p.birthday || '未登録'}</small>
+      </div>`).join('');
+    const activeItem = document.getElementById(`suggest-item-${selectedIndex}`);
+    if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+  }
+
+  function selectPatient(p) {
+    selectedPatientId = p.id;
+    document.getElementById('pKana').value  = p.kana;
+    document.getElementById('pName').value  = p.name;
+    document.getElementById('pBirth').value = p.birthday;
+
+    if (p.nextStartDate) document.getElementById('pStartDate').value = p.nextStartDate;
+    else document.getElementById('pStartDate').value = new Date().toISOString().split('T')[0];
+
+    if (p.lastDays) document.getElementById('pDays').value = p.lastDays;
+    document.getElementById('results').style.display = "none";
+    document.getElementById('btn-delete-patient').disabled = false;
+
+    document.getElementById('fixedDate').checked = p.fixedDate || false;
+    const targetRadio = document.querySelector(`input[name="cellPos"][value="${p.cellPos || 'top'}"]`);
+    if (targetRadio) targetRadio.checked = true;
+
+    if (p.lastUsage) {
+      const usageParts    = p.lastUsage.split(/[,、，\s\/]+/).map(s => s.trim()).filter(Boolean);
+      const standardValues = Array.from(document.querySelectorAll('input[name="usage"]')).map(c => c.value);
+
+      document.querySelectorAll('input[name="usage"]').forEach(c => c.checked = false);
+      for (let i = 0; i < 8; i++) {
+        const fc = document.getElementById('fc-' + i);
+        const ft = document.getElementById('ft-' + i);
+        if (fc) fc.checked = false;
+        if (ft) ft.value   = "";
+      }
+
+      let freeIdx = 0;
+      usageParts.forEach(val => {
+        if (standardValues.includes(val)) {
+          document.querySelectorAll('input[name="usage"]').forEach(c => { if (c.value === val) c.checked = true; });
+        } else if (freeIdx < 8) {
+          const fc = document.getElementById('fc-' + freeIdx);
+          const ft = document.getElementById('ft-' + freeIdx);
+          if (fc && ft) { ft.value = val; fc.checked = true; freeIdx++; }
+        }
+      });
+
+      const extraArea = document.getElementById('usageExtra');
+      if (extraArea) {
+        const hasExtra = Array.from(extraArea.querySelectorAll('input[name="usage"]')).some(c => c.checked)
+                      || Array.from({length: 8}, (_, i) => document.getElementById('ft-' + i)).some(ft => ft && ft.value.length > 0);
+        const bsCollapse = bootstrap.Collapse.getInstance(extraArea) || new bootstrap.Collapse(extraArea, { toggle: false });
+        hasExtra ? bsCollapse.show() : bsCollapse.hide();
+      }
+    }
+    refreshPages();
+  }
+
+  function openDeleteModal() { if (selectedPatientId) new bootstrap.Modal(document.getElementById('deleteConfirmModal')).show(); }
+  async function executeDelete() {
+    if (!selectedPatientId) return;
+    const ok = await deletePatientFromSheet(selectedPatientId);
+    if (ok) {
+      alert("削除しました。再読み込みします。");
+      location.reload();
+    }
+  }
+
+  function executeReset() {
+    document.getElementById('pKana').value  = ""; document.getElementById('pName').value  = ""; document.getElementById('pBirth').value = "";
+    document.getElementById('pDays').value  = "14"; document.getElementById('pStartDate').value = new Date().toISOString().split('T')[0];
+    selectedPatientId = null; document.getElementById('btn-delete-patient').disabled = true;
+    document.getElementById('fixedDate').checked = false; document.getElementById('posTop').checked = true; document.getElementById('topMarginInput').value = "4.5";
+
+    document.querySelectorAll('input[name="usage"]').forEach(c => c.checked = false);
+    for (let i = 0; i < 8; i++) {
+      const fc = document.getElementById('fc-' + i); const ft = document.getElementById('ft-' + i);
+      if (fc) fc.checked = false; if (ft) ft.value = "";
+    }
+    const extraArea = document.getElementById('usageExtra');
+    if (extraArea) {
+      const bsCollapse = bootstrap.Collapse.getInstance(extraArea) || new bootstrap.Collapse(extraArea, { toggle: false });
+      bsCollapse.hide();
+    }
+    refreshPages();
+  }
+
+  async function printAction() {
+    const name = document.getElementById('pName').value.trim();
+    if (!name) { alert("氏名を入力してください。"); return; }
+    const usages = getSelectedUsages();
+    if (usages.length === 0) { alert("用法を1つ以上選択してください。"); return; }
+
+    const startDateVal = document.getElementById('pStartDate').value;
+    const days        = parseInt(document.getElementById('pDays').value) || 0;
+    const fixedDate    = document.getElementById('fixedDate')?.checked ?? false;
+    const topMarginMm  = parseFloat(document.getElementById('topMarginInput')?.value ?? 4.5) || 0;
+    const cellPos      = document.querySelector('input[name="cellPos"]:checked')?.value || 'top';
+
+    const pData = {
+      id:        selectedPatientId,
+      kana:      document.getElementById('pKana').value,
+      name:      name,
+      birthday:  document.getElementById('pBirth').value,
+      startDate: startDateVal,
+      days:      days,
+      usage:     usages.join(', '),
+      fixedDate: fixedDate,
+      cellPos:   cellPos,
+      topMargin: topMarginMm
+    };
+    await savePrintLog(pData);
+    await loadPatients(); // 保存内容を最新化
+
+    const now = new Date();
+    const todayStr = `${now.getMonth() + 1}/${now.getDate()}`;
+    let totalCells = [];
+    usages.forEach(usage => {
+      let currentBaseDate = new Date(startDateVal);
+      for (let i = 0; i < days; i++) {
+        const m = currentBaseDate.getMonth() + 1;
+        const d = currentBaseDate.getDate();
+        const dateStr = fixedDate ? todayStr : `${m}/${d}`;
+        totalCells.push({ dateText: dateStr, nameText: name + " 様", usageText: usage });
+        currentBaseDate.setDate(currentBaseDate.getDate() + 1);
+      }
+    });
+
+    const justifyMap = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
+    const justifyVal = justifyMap[cellPos] || 'flex-start';
+
+    let htmlPages = "";
+    const cellsPerPage = 28;
+    const pageCount = Math.ceil(totalCells.length / cellsPerPage);
+
+    for (let p = 0; p < pageCount; p++) {
+      let cellHtmls = "";
+      const pageCells = totalCells.slice(p * cellsPerPage, (p + 1) * cellsPerPage);
+
+      pageCells.forEach((c, idx) => {
+        const isInverse = /食前|食直前/.test(c.usageText);
+        const usageHtml = isInverse
+          ? `<span style="background:#000;color:#fff;padding:0 6px;border-radius:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">${c.usageText}</span>`
+          : c.usageText;
+
+        let borderStyles = "border-right:1.5px solid #000; border-bottom:1.5px solid #000;";
+        if ((idx + 1) % 7 === 0) borderStyles = "border-bottom:1.5px solid #000;";
+        if (idx >= 21) borderStyles = borderStyles.replace("border-bottom:1.5px solid #000;", "");
+
+        cellHtmls += `
+          <div style="width:calc(100% / 7); height:calc(100% / 4); padding:${topMarginMm}mm 2mm 4mm 2mm; box-sizing:border-box; display:flex; flex-direction:column; justify-content:${justifyVal}; background:#fff; ${borderStyles}">
+            <div style="font-size:11pt; color:#333; font-weight:bold; text-align:center; white-space:normal; word-break:break-all; overflow:hidden; margin-bottom:1mm;">${c.nameText}</div>
+            <div style="font-size:16pt; font-weight:bold; color:#000; text-align:center; margin-bottom:1mm;">${c.dateText}</div>
+            <div style="font-size:16pt; font-weight:900; text-align:center; color:#000;">${usageHtml}</div>
+          </div>
+        `;
+      });
+
+      const isLastPage = (p === pageCount - 1);
+      const breakStyle = isLastPage ? "" : "page-break-after:always;";
+
+      htmlPages += `
+        <div class="page" style="width:297mm; height:100%; padding:0; box-sizing:border-box; display:flex; flex-wrap:wrap; align-content:flex-start; ${breakStyle} background:#fff;">
+          ${cellHtmls}
+        </div>
+      `;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if(!printWindow) {
+      alert("ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。");
+      return;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>印刷</title>
+        <style>
+          @page {
+            size: A4 landscape !important;
+            margin: 0 !important;
+          }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            font-family: "Hiragino Maru Gothic ProN", "Meiryo", sans-serif;
+            width: 297mm !important;
+            height: 100% !important;
+          }
+          * { box-sizing: border-box; }
+          @media print {
+            .page {
+              width: 297mm !important;
+              height: 100% !important;
+              page-break-inside: avoid !important;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        ${htmlPages}
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.onafterprint = function() { window.close(); };
+              window.print();
+              setTimeout(function() { window.close(); }, 30000);
+            }, 300);
+          };
+        <\/script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    executeReset();
+  }
+
+  document.addEventListener('click', function(e) { if (e.target.id !== 'pKana') document.getElementById('results').style.display = "none"; });
+
+  // スマホ用：日数フィールドタップでメニュー開閉
+  (function() {
+    const isTouchDevice = () => window.matchMedia('(max-width: 768px)').matches;
+    const daysInput = document.getElementById('pDays');
+    const menu = document.querySelector('.days-hover-menu');
+    if (!daysInput || !menu) return;
+
+    daysInput.addEventListener('click', function(e) {
+      if (!isTouchDevice()) return;
+      e.stopPropagation();
+      const isVisible = menu.style.opacity === '1';
+      menu.style.opacity = isVisible ? '0' : '1';
+      menu.style.visibility = isVisible ? 'hidden' : 'visible';
+      menu.style.transform = isVisible ? 'translateY(5px)' : 'translateY(0)';
+    });
+
+    document.addEventListener('click', function() {
+      if (!isTouchDevice()) return;
+      menu.style.opacity = '0';
+      menu.style.visibility = 'hidden';
+      menu.style.transform = 'translateY(5px)';
+    });
+  })();
+</script>
+</body>
+</html>
